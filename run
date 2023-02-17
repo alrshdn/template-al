@@ -1,5 +1,0 @@
-#!/bin/sh
-
-rm temp &
-gcc -o temp temp-al.c minim-ui.c -lX11 
-./temp 
