@@ -17,27 +17,40 @@
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
+#include <X11/Xft/Xft.h>
+#include <X11/Xutil.h>
 
 #include "minim-ui.h"
 
 
 /* macros */
-#define XPOS 		100
-#define YPOS 		100
-#define WIDTH 		2000
-#define HEIGHT 		1200
-#define BORDERWIDTH 	200
-#define BORDERCOLOR 	0xFF000000
-#define BGCOLOR 	0x00458588
-#define APPNAME		"temp-al"
+#define WINDOW_XPOS		100
+#define WINDOW_YPOS		100
+#define WINDOW_WIDTH 		2000
+#define WINDOW_HEIGHT 		1200
+#define WINDOW_MIN_WIDTH	0
+#define WINDOW_MIN_HEIGHT	0
+#define WINDOW_MAX_WIDTH	0
+#define WINDOW_MAX_HEIGHT	0
+#define BORDER_WIDTH 		200
+#define BORDER_COLOR 		0x000000
+#define BACKGROUND_COLOR	0x458588
+#define FOREGROUND_COLOR	0xeadbb2
+#define APP_NAME		"temp-al"
 
-#define LENGTH(X)               (sizeof X / sizeof X[0])
+#define LENGTH(X)		(sizeof X / sizeof X[0])
+
+
+#define DRAW_BACKGROUND(WIDTH, HEIGHT)	mui_draw_rectangle(mui, 0, 0, WIDTH, HEIGHT, 1, 1)
 
 /* enums */
+enum {ClrIdBackground, ClrIdForeground, ClrIdBorder, ClrIdCount}; /* colors indices for accessing different colormodes' elements */
+
 enum {
-	WMNormalHints,
-	WMLast
-}; /* Window Manager Atoms */
+	ClrModeMenuUnsel,
+	ClrModeMenuSel,
+}; /* color modes */
+
 
 /* unions */
 typedef union {
@@ -59,14 +72,16 @@ typedef struct {
 
 
 /* function declarations */
-static void buttonpress(XEvent *e);
+static void buttonpress(MuiEvent *e);
 static void cleanup(void);
-static void draw_rect(const Arg *arg);
-static void expose(XEvent *e);
+static void configurenotify(MuiEvent *e);
+static void drawmenu(const Arg *arg);
+static void expose(MuiEvent *e);
 static void grapkeys(void);
-static void keypress(XEvent *e);
-static void keyrelease(XEvent *e);
+static void keypress(MuiEvent *e);
+static void keyrelease(MuiEvent *e);
 static void quit(const Arg* arg);
+static void resizerequest(MuiEvent *e);
 static void run(void);
 static void setup(void);
 
@@ -74,25 +89,19 @@ static void setup(void);
 /* variables */
 static int isrunning;
 
-static Display *dpy;
-
-static int scr; /* screen number */
-static int sw, sh; /* screen width and height*/
-
-static Window root, temp_al;
-
 static Mui *mui; /* minimal user interface */
 
-static void (*eventhandler[LASTEvent]) (XEvent *) = {
+static void (*eventhandler[LASTEvent]) (MuiEvent *) = {
 	[ButtonPress] 		= buttonpress,
         [Expose] 		= expose,
         [KeyPress] 		= keypress,
         [KeyRelease] 		= keyrelease,
+        [ConfigureNotify] 	= configurenotify,
 	/*
+        [ResizeRequest] 	= resizerequest,
 	[CreateNotify]		= createnotify,
         [ClientMessage] 	= clientmessage,
         [ConfigureRequest] 	= configurerequest,
-        [ConfigureNotify] 	= configurenotify,
         [DestroyNotify] 	= destroynotify,
         [EnterNotify] 		= enternotify,
         [FocusIn] 		= focusin,
@@ -104,84 +113,75 @@ static void (*eventhandler[LASTEvent]) (XEvent *) = {
 	*/
 };
 
-static Atom wmatom[WMLast];
 
-
-#include "config.h"
+#include "minim-cfg.h"
 
 
 /* function implementations */
 void
-buttonpress(XEvent *e)
+buttonpress(MuiEvent *e)
 {
-	XButtonPressedEvent *ev = &e->xbutton;
-	printf("EVENT: mouse coordinates (%i, %i)\n", ev->x, ev->y);
-	//XDrawPoint(dpy, temp_al, gc, ev->x, ev->y);
+	MuiButtonPressedEvent *ev = &e->xbutton;
 }
 
 void
 cleanup(void)
 {
 	printf("LOG: started cleanup\n");
-	XUnmapWindow(dpy, root);
-	XDestroyWindow(dpy, root);
-	mui_cleanup(mui);
 	printf("LOG: finished cleanup\n");
 }
 
 void
-expose(XEvent *e)
+expose(MuiEvent *e)
 {
-	XExposeEvent *ev = &e->xexpose;
-	printf("EVENT: Exposed\n");
-
-	//mui_rectangle(mui, 100, 120, 640, 480, 1, 1);
+	MuiExposedEvent *ev = &e->xexpose;	
+	if (ev->count == 0) {
+		mui_draw_rectangle(mui, 100, 120, mui->w/5, mui->h/5, 1, 1);
+		//drawmenu(0);
+	}
 }
 
 void
 grabkeys(void)
 {
-	unsigned int i, j;
+	size_t i, j;
 	unsigned int modifiers[] = { 0, LockMask };
 	KeyCode code;
 
-	XUngrabKey(dpy, AnyKey, AnyModifier, temp_al);
+	XUngrabKey(mui->dpy, AnyKey, AnyModifier, mui->main_win);
 	for (i = 0; i < LENGTH(keyevents); i++)
-		if ((code = XKeysymToKeycode(dpy, keyevents[i].keysym)))
+		if ((code = XKeysymToKeycode(mui->dpy, keyevents[i].keysym)))
 			for (j = 0; j < LENGTH(modifiers); j++)
-				XGrabKey(dpy, code, keyevents[i].mod | modifiers[j], temp_al,
+				XGrabKey(mui->dpy, code, keyevents[i].mod | modifiers[j], mui->main_win,
 					True, GrabModeAsync, GrabModeAsync);
 }
 
-void draw_rect(const Arg *arg)
+void
+drawmenu(const Arg *arg)
 {
-	mui_rectangle(mui, arg->geo[0], arg->geo[1], arg->geo[2], arg->geo[3], 1, 1);
+	/* background */
+	int w, h;
+
+	mui_getwindow_size(mui, &w, &h);
+	DRAW_BACKGROUND(w, h);
 }
 
-
 void
-keypress(XEvent *e)
+keypress(MuiEvent *e)
 {
 	unsigned int i;
-	XKeyPressedEvent *ev = &e->xkey;
-	
-	//printf("p+shift: %i, %i, %i\n", ev->keycode == XKeysymToKeycode(dpy, keyevents[0].keysym), ev->state == keyevents[0].mod, keyevents[0].callback);
-	//printf("return+mod3+shift: %i, %i, %i\n", ev->keycode == XKeysymToKeycode(dpy, keyevents[1].keysym),
-	//						ev->state == keyevents[1].mod,
-	//						keyevents[1].callback);
-
+	MuiKeyPressedEvent *ev = &e->xkey;	
 	for (i = 0; i < LENGTH(keyevents); i++)
-		if (ev->keycode == XKeysymToKeycode(dpy, keyevents[i].keysym)
+		if (ev->keycode == XKeysymToKeycode(mui->dpy, keyevents[i].keysym)
 				&& ev->state == keyevents[i].mod
 				&& keyevents[i].callback)
 			keyevents[i].callback(&(keyevents[i].arg));
 }
 
 void
-keyrelease(XEvent *e)
+keyrelease(MuiEvent *e)
 {
-	XKeyReleasedEvent *ev = &e->xkey;
-	//printf("EVENT: Keycode %i, type %i (key release). XK_q = %i\n", ev->keycode, ev->type, XK_q);
+	MuiKeyReleasedEvent *ev = &e->xkey;
 }
 
 void
@@ -191,15 +191,24 @@ quit(const Arg *arg)
 }
 
 void
+configurenotify(MuiEvent *e)
+{
+	XConfigureEvent *ev = &e->xconfigure;
+	if (ev->width != mui->w || ev->height != mui->h) {
+		printf("RESIZE EVENT: (%i, %i)\n", ev->width, ev->height);
+		mui_setwindow_newsize(mui, ev->width, ev->height);
+	}
+}
+
+void
 run(void)
 {
-	printf("LOG: run (from main)\n");
-	XEvent ev;
-
+	MuiEvent ev;
+	
+	mui_show(mui);
 	isrunning = 1;
 
-	XSync(dpy, False);
-	while (isrunning && !XNextEvent(dpy, &ev)) {
+	while (isrunning && !XNextEvent(mui->dpy, &ev)) {
 		if (eventhandler[ev.type]) {
 			eventhandler[ev.type](&ev);
 		}
@@ -209,56 +218,38 @@ run(void)
 void
 setup(void)
 {
-	printf("LOG: setup (from main)\n");
-	XSetWindowAttributes wa;
+	int i;
 
-	/* screen setup */
-	scr = XDefaultScreen(dpy);
-	sw = XDisplayWidth(dpy, scr);
-	sh = XDisplayHeight(dpy, scr);
+	mui_setwindow_minmaxsize(mui, 1080, 720, 1440, 1080);
 
-	/* fetching root window */
-	root = DefaultRootWindow(dpy);
+	/* apply color scheme */
+		
 
-	/* main window and main window's attributes setup */
-	wa.background_pixel = BGCOLOR;
-	wa.border_pixel = BlackPixel(dpy, scr);
-	wa.event_mask = KeyPressMask|KeyReleaseMask|ButtonPressMask|ExposureMask;
-	unsigned long valuemask = CWEventMask|CWBorderPixel|CWBackPixel;
-	temp_al = XCreateWindow(dpy, root,
-			XPOS, YPOS,
-			WIDTH, HEIGHT,
-			BORDERWIDTH,
-			DefaultDepth(dpy, scr),
-			InputOutput, 
-			DefaultVisual(dpy, scr),
-			valuemask,
-			&wa);
+//	for (i = 0; i < LENGTH(colors); i++)
 
-	XStoreName(dpy, temp_al, APPNAME);
-	XMapWindow(dpy, temp_al);
-
-	/* minimal user interface setup */
-	mui = mui_setup(dpy, scr, temp_al, WIDTH, HEIGHT);
-
-	/* atoms setup */
-	wmatom[WMNormalHints] = XInternAtom(dpy, "WM_NORMAL_HINTS", False);
 }
 
 int
 main(void)
 {
-	dpy = XOpenDisplay(NULL);
-	if (!dpy) {
+	/* initialize */
+	if (!(mui = mui_init(NULL))) {
 		printf("temp-al: cannot open display!\n");
 		return 1;
 	}
 
-	setup();
-	printf("LOG: main (from startup)\n");
-	run();
+	/* setup minimal user interface */
+	mui_setup(mui, WINDOW_XPOS, WINDOW_YPOS, WINDOW_WIDTH, WINDOW_HEIGHT, BACKGROUND_COLOR, FOREGROUND_COLOR, APP_NAME);
 
+	/* minim-al program */
+	setup();
+	run();
 	cleanup();
-	XCloseDisplay(dpy);
+
+	/* cleanup minimal user interface */
+	mui_cleanup(mui);
+	
+	/* finalize */	
+	mui_fin(mui, False);	
 	return 0;
 }
