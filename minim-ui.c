@@ -74,6 +74,46 @@ mui_setup(Mui *mui,
 }
 
 void
+mui_create_color(Mui *mui,
+		char *colorname,
+		MuiColor *color)
+{
+	printf("MUI_CREATE_COLOR %s\n", colorname);
+	XftColorAllocName(mui->dpy,
+			DefaultVisual(mui->dpy, mui->scr),
+			DefaultColormap(mui->dpy, mui->scr),
+			colorname, color);
+}
+
+MuiColor *
+mui_create_colormode(Mui *mui,
+		char *colornames[],
+		const size_t colorcount)
+{
+	size_t i;
+	MuiColor *color = calloc(colorcount, sizeof(MuiColor));
+
+	for (i = 0; i < colorcount; i++)
+		mui_create_color(mui, colornames[i], color);
+
+	return color;
+}
+
+void
+mui_create_colormodes(Mui *mui,
+		char *colors[][ClrIdCount],
+		const size_t colormodecount, const size_t colorcount)
+{
+	size_t i;
+
+	mui->colormodes = calloc(colormodecount, sizeof(MuiColor *));
+	mui->colormodecount = colormodecount;
+
+	for (i = 0; i < colormodecount; i++)
+		mui->colormodes[i] = mui_create_colormode(mui, colors[i], colorcount);
+}
+
+void
 mui_show(Mui *mui)
 {
 	if (XMapWindow(mui->dpy, mui->main_win))
@@ -134,13 +174,14 @@ void
 mui_draw_rectangle(Mui *mui,
 		const int xposition, const int yposition,
 		const unsigned int width, const unsigned int height,
-		const int isfilled, const int isinverted)
+		const int isfilled, const int isinverted,
+		const int colormode)
 {
 	/*
 	if (!mui || !mui->scheme)
 		return;
 	*/
-	XSetForeground(mui->dpy, mui->gc, WhitePixel(mui->dpy, mui->scr));
+	XSetForeground(mui->dpy, mui->gc, isinverted ? mui->colormodes[colormode][ClrIdBackground].pixel : mui->colormodes[colormode][ClrIdForeground].pixel);
 	if (isfilled)
 		XFillRectangle(mui->dpy, mui->main_win, mui->gc, xposition, yposition, width, height);
 	else
@@ -148,47 +189,10 @@ mui_draw_rectangle(Mui *mui,
 }
 
 void
-mui_create_clr(Mui *mui,
-		const char *clrname,
-		Clr *clr)
-{
-	XftColorAllocName(mui->dpy,
-			DefaultVisual(mui->dpy, mui->scr),
-			DefaultColormap(mui->dpy, mui->scr),
-			clrname, clr);
-}
-
-Clr *
-mui_create_clrmode(Mui *mui,
-		char *clrnames[],
-		size_t clrcount)
+mui_cleanup(Mui *mui)
 {
 	size_t i;
-	Clr *clr;
 
-	for (i = 0; i < clrcount; i++)
-		mui_create_clr(mui, clrnames[i], clr);
-
-	return clr;
-}
-
-void
-mui_create_clrmodes()
-{
-	colormodes = ecalloc(LENGTH(colors), sizeof(Clr *));
-	for (i = 0; i < LENGTH(colors); i++)
-		colormodes[i] = mui_create_colormode(mui, colors[i], ClrIdCount);
-}
-
-void
-mui_set_clrmode(Mui *mui, Clr *clrmode)
-{
-	mui->clrmode = clrmode;
-}
-
-void
-mui_cleanup(Mui *mui)
-{	
 	mui->scr = 0;
 	mui->w = 0;
 	mui->h = 0;
@@ -198,7 +202,9 @@ mui_cleanup(Mui *mui)
 
 	XFreeGC(mui->dpy, mui->gc);
 	
-	free(mui->clrmode);
+	for (i = 0; i < mui->colormodecount; i++)
+		free(mui->colormodes[i]);
+	free(mui->colormodes);
 }
 
 void

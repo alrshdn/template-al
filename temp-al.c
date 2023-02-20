@@ -40,12 +40,10 @@
 
 #define LENGTH(X)		(sizeof X / sizeof X[0])
 
+#define DRAW_BACKGROUND(WIDTH, HEIGHT)	mui_draw_rectangle(mui, 0, 0, WIDTH, HEIGHT, 1, 1, ClrModeMenuSel)
 
-#define DRAW_BACKGROUND(WIDTH, HEIGHT)	mui_draw_rectangle(mui, 0, 0, WIDTH, HEIGHT, 1, 1)
 
 /* enums */
-enum {ClrIdBackground, ClrIdForeground, ClrIdBorder, ClrIdCount}; /* colors indices for accessing different colormodes' elements */
-
 enum {
 	ClrModeMenuUnsel,
 	ClrModeMenuSel,
@@ -132,12 +130,23 @@ cleanup(void)
 }
 
 void
+drawmenu(const Arg *arg)
+{
+	mui_draw_rectangle(mui, 400, 520, mui->w/5, mui->h/5, True, True, ClrModeMenuSel);
+	mui_draw_rectangle(mui, 100, 120, mui->w/5, mui->h/5, True, True, ClrModeMenuUnsel);
+
+	/* background */
+	//int w, h;
+	//mui_getwindow_size(mui, &w, &h);
+	//DRAW_BACKGROUND(w, h);
+}
+
+void
 expose(MuiEvent *e)
 {
 	MuiExposedEvent *ev = &e->xexpose;	
 	if (ev->count == 0) {
-		mui_draw_rectangle(mui, 100, 120, mui->w/5, mui->h/5, 1, 1);
-		//drawmenu(0);
+		drawmenu(0);
 	}
 }
 
@@ -156,15 +165,7 @@ grabkeys(void)
 					True, GrabModeAsync, GrabModeAsync);
 }
 
-void
-drawmenu(const Arg *arg)
-{
-	/* background */
-	int w, h;
 
-	mui_getwindow_size(mui, &w, &h);
-	DRAW_BACKGROUND(w, h);
-}
 
 void
 keypress(MuiEvent *e)
@@ -218,15 +219,10 @@ run(void)
 void
 setup(void)
 {
-	int i;
-
 	mui_setwindow_minmaxsize(mui, 1080, 720, 1440, 1080);
 
-	/* apply color scheme */
-		
-
-//	for (i = 0; i < LENGTH(colors); i++)
-
+	/* setup color scheme */
+	mui_create_colormodes(mui, colors, LENGTH(colors), ClrIdCount);
 }
 
 int
